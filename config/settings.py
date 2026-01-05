@@ -6,7 +6,7 @@ from datetime import time
 # =========================
 # SYMBOL & TIMEFRAMES
 # =========================
-SYMBOL = "EURUSD"
+SYMBOL = "EURUSDm"
 
 HTF = mt5.TIMEFRAME_H1
 LTF = mt5.TIMEFRAME_M5
@@ -14,9 +14,9 @@ LTF = mt5.TIMEFRAME_M5
 # =========================
 # RISK MANAGEMENT
 # =========================
-RISK_PER_TRADE_USD = 3000
+RISK_PER_TRADE = 3000
 MIN_RR = 5.0
-BREAK_EVEN_RR = 4.0
+BE_RR = 4.0
 
 MAX_OPEN_TRADES = 1
 ALLOW_FLIP = True
