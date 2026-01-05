@@ -1,31 +1,14 @@
 # core/pdh_pdl.py
 
 import MetaTrader5 as mt5
-<<<<<<< HEAD
-from datetime import datetime, timedelta
-import pandas as pd
-=======
-import pandas as pd
-from datetime import datetime, timedelta
 
->>>>>>> master
+from datetime import datetime, timedelta
+import pandas as pd
 
 class DailyLiquidity:
     def __init__(self, symbol):
         self.symbol = symbol
-<<<<<<< HEAD
-        self.used_levels = set()  # one-time event enforcement
 
-    def _get_previous_day(self):
-        today = datetime.utcnow().date()
-        prev_day = today - timedelta(days=1)
-        return prev_day
-
-    def fetch_pdh_pdl(self):
-        prev_day = self._get_previous_day()
-=======
-
-    # ---------------------------------------------
     def fetch_pdh_pdl(self):
         """
         LIVE MODE: previous day relative to today
@@ -35,12 +18,10 @@ class DailyLiquidity:
 
         start = datetime.combine(prev_day, datetime.min.time())
         end = datetime.combine(prev_day, datetime.max.time())
->>>>>>> master
 
         rates = mt5.copy_rates_range(
             self.symbol,
             mt5.TIMEFRAME_H1,
-<<<<<<< HEAD
             datetime.combine(prev_day, datetime.min.time()),
             datetime.combine(prev_day, datetime.max.time())
         )
@@ -71,37 +52,3 @@ class DailyLiquidity:
 
     def is_unused(self, level):
         return round(level, 5) not in self.used_levels
-=======
-            start,
-            end
-        )
-
-        if rates is None or len(rates) == 0:
-            return None, None
-
-        df = pd.DataFrame(rates)
-        return df["high"].max(), df["low"].min()
-
-    # ---------------------------------------------
-    def fetch_pdh_pdl_for_date(self, day):
-        """
-        BACKTEST MODE: previous day relative to supplied date
-        """
-        prev_day = day - timedelta(days=1)
-
-        start = datetime.combine(prev_day, datetime.min.time())
-        end = datetime.combine(prev_day, datetime.max.time())
-
-        rates = mt5.copy_rates_range(
-            self.symbol,
-            mt5.TIMEFRAME_H1,
-            start,
-            end
-        )
-
-        if rates is None or len(rates) == 0:
-            return None, None
-
-        df = pd.DataFrame(rates)
-        return df["high"].max(), df["low"].min()
->>>>>>> master
