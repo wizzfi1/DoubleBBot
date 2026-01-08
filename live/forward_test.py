@@ -34,7 +34,7 @@ ENABLE_TRADING = True
 ENABLE_FLIP = True
 
 CHECK_INTERVAL = 10
-MAX_ONE_TRADE_AT_A_TIME = False   # flip requires seeing closed trade
+MAX_ONE_TRADE_AT_A_TIME = False   # REQUIRED for flip detection
 
 
 # =============================
@@ -51,7 +51,7 @@ send(
     f"Symbol: {SYMBOL}\n"
     "Risk: $3000\n"
     "TP: Next PDH / PDL\n"
-    "Flip: ENABLED"
+    "Flip: LIMIT | RR ≥ 5"
 )
 
 
@@ -66,6 +66,7 @@ current_direction = None
 flip_direction = None
 tp_level = None
 trade_session = None
+
 last_primary_ticket = None
 
 
@@ -150,7 +151,7 @@ while True:
             log_pdl_taken(SYMBOL, last["low"])
 
     # =============================
-    # ENTRY
+    # PRIMARY ENTRY
     # =============================
     if detector and not trade_taken:
         entry_index = detector.update(m5, len(m5) - 1)
@@ -175,8 +176,14 @@ while True:
             )
 
             log_double_break(SYMBOL, current_direction, detector.breaks)
-            log_entry(SYMBOL, current_direction,
-                      plan.entry_price, plan.stop_loss, tp_level, rr)
+            log_entry(
+                SYMBOL,
+                current_direction,
+                plan.entry_price,
+                plan.stop_loss,
+                tp_level,
+                rr
+            )
 
             if ENABLE_TRADING:
                 lot = risk_manager.calculate_lot_size(
@@ -192,7 +199,7 @@ while True:
                 last_primary_ticket = ticket
 
     # =============================
-    # FLIP MONITOR
+    # FLIP MONITOR (LIMIT, RR ≥ 5)
     # =============================
     if ENABLE_FLIP and trade_taken and not flip_used:
         deal = get_last_closed_trade()
@@ -210,11 +217,15 @@ while True:
                         FlipSignal(), tp_level
                     )
 
+                    if not flip_plan.valid:
+                        flip_used = True
+                        continue
+
                     flip_rr = abs(tp_level - flip_plan.entry_price) / abs(
                         flip_plan.entry_price - flip_plan.stop_loss
                     )
 
-                    if flip_plan.valid and flip_rr >= 5:
+                    if flip_rr >= 5:
                         lot = risk_manager.calculate_lot_size(
                             flip_plan.entry_price,
                             flip_plan.stop_loss
@@ -237,10 +248,10 @@ while True:
                             flip_rr,
                         )
 
-                        flip_used = True
+                    flip_used = True
 
     # =============================
-    # RESET EVENT
+    # RESET
     # =============================
     if detector and detector.completed:
         detector = None
