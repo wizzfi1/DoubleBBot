@@ -1,9 +1,11 @@
 # execution/orders.py
+from core.event_logger import log_sl, log_flip
+from config.settings import PRIMARY_MAGIC, FLIP_MAGIC, SLIPPAGE, MAX_OPEN_TRADES
+
 
 import MetaTrader5 as mt5
 from typing import Optional
 
-from config.settings import MAGIC_NUMBER, SLIPPAGE, MAX_OPEN_TRADES
 
 
 class OrderExecutor:

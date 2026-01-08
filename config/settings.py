@@ -33,7 +33,8 @@ NEWYORK_SESSION = (time(12, 0), time(21, 0))
 # =========================
 ORDER_TYPE = "LIMIT"
 SLIPPAGE = 5
-MAGIC_NUMBER = 44001
+PRIMARY_MAGIC = 91001
+FLIP_MAGIC = 91002
 
 # =========================
 # SAFETY
