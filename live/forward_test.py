@@ -1,7 +1,7 @@
 import sys
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -34,7 +34,6 @@ ENABLE_TRADING = True
 ENABLE_FLIP = True
 
 CHECK_INTERVAL = 10
-MAX_ONE_TRADE_AT_A_TIME = False   # REQUIRED for flip detection
 
 
 # =============================
@@ -50,15 +49,17 @@ send(
     "🚀 *Live Demo Trading Started*\n"
     f"Symbol: {SYMBOL}\n"
     "Risk: $3000\n"
-    "TP: Next PDH / PDL\n"
+    "TP: Previous-Day PDH / PDL\n"
     "Flip: LIMIT | RR ≥ 5"
 )
 
 
 # =============================
-# STATE
+# STRATEGY STATE (CRITICAL)
 # =============================
+active_event = False        # 🔒 one liquidity event at a time
 detector = None
+
 trade_taken = False
 flip_used = False
 
@@ -73,11 +74,30 @@ last_primary_ticket = None
 # =============================
 # HELPERS
 # =============================
+def get_previous_day_levels(h1_df: pd.DataFrame):
+    """
+    Returns PDH / PDL for the previous UTC calendar day.
+    """
+    h1_df = h1_df.copy()
+    h1_df["date"] = h1_df["time"].dt.date
+
+    today = datetime.now(timezone.utc).date()
+    prev_day = today - timedelta(days=1)
+
+    prev = h1_df[h1_df["date"] == prev_day]
+
+    if prev.empty:
+        return None, None
+
+    return prev["high"].max(), prev["low"].min()
+
+
 def get_last_closed_trade():
     deals = mt5.history_deals_get(
-        datetime.now(timezone.utc) - pd.Timedelta(hours=6),
-        datetime.now(timezone.utc)
+        datetime.now(timezone.utc) - timedelta(hours=12),
+        datetime.now(timezone.utc),
     )
+
     if not deals:
         return None
 
@@ -112,7 +132,7 @@ while True:
     # FETCH DATA
     # ---------------------------
     rates_m5 = mt5.copy_rates_from_pos(SYMBOL, mt5.TIMEFRAME_M5, 0, 300)
-    rates_h1 = mt5.copy_rates_from_pos(SYMBOL, mt5.TIMEFRAME_H1, 0, 50)
+    rates_h1 = mt5.copy_rates_from_pos(SYMBOL, mt5.TIMEFRAME_H1, 0, 72)
 
     if rates_m5 is None or rates_h1 is None:
         time.sleep(CHECK_INTERVAL)
@@ -121,33 +141,45 @@ while True:
     m5 = pd.DataFrame(rates_m5)
     h1 = pd.DataFrame(rates_h1)
 
-    m5["time"] = pd.to_datetime(m5["time"], unit="s")
-    h1["time"] = pd.to_datetime(h1["time"], unit="s")
+    m5["time"] = pd.to_datetime(m5["time"], unit="s", utc=True)
+    h1["time"] = pd.to_datetime(h1["time"], unit="s", utc=True)
 
     last = m5.iloc[-1]
     last_time = last["time"]
 
-    pdh = h1.iloc[:-1]["high"].max()
-    pdl = h1.iloc[:-1]["low"].min()
+    # =============================
+    # PREVIOUS-DAY PDH / PDL
+    # =============================
+    pdh, pdl = get_previous_day_levels(h1)
+
+    if pdh is None or pdl is None:
+        time.sleep(CHECK_INTERVAL)
+        continue
 
     # =============================
-    # ARM LIQUIDITY EVENT
+    # ARM LIQUIDITY EVENT (ONE ONLY)
     # =============================
-    if detector is None:
+    if not active_event:
         if last["high"] >= pdh:
+            active_event = True
             detector = DoubleBreakDetector(pdh, "SELL")
+
             current_direction = "SELL"
             flip_direction = "BUY"
             tp_level = pdl
             trade_session = get_session(last_time)
+
             log_pdh_taken(SYMBOL, last["high"])
 
         elif last["low"] <= pdl:
+            active_event = True
             detector = DoubleBreakDetector(pdl, "BUY")
+
             current_direction = "BUY"
             flip_direction = "SELL"
             tp_level = pdh
             trade_session = get_session(last_time)
+
             log_pdl_taken(SYMBOL, last["low"])
 
     # =============================
@@ -166,9 +198,6 @@ while True:
             plan = entry_engine.build_trade_plan(Signal(), tp_level)
 
             if not plan.valid:
-                detector = None
-                trade_taken = False
-                flip_used = False
                 continue
 
             rr = abs(tp_level - plan.entry_price) / abs(
@@ -182,13 +211,14 @@ while True:
                 plan.entry_price,
                 plan.stop_loss,
                 tp_level,
-                rr
+                rr,
             )
 
             if ENABLE_TRADING:
                 lot = risk_manager.calculate_lot_size(
                     plan.entry_price, plan.stop_loss
                 )
+
                 ticket = executor.place_limit(
                     direction=plan.direction,
                     lot=lot,
@@ -196,10 +226,11 @@ while True:
                     sl=plan.stop_loss,
                     tp=tp_level,
                 )
+
                 last_primary_ticket = ticket
 
     # =============================
-    # FLIP MONITOR (LIMIT, RR ≥ 5)
+    # FLIP MONITOR (LIMIT | RR ≥ 5)
     # =============================
     if ENABLE_FLIP and trade_taken and not flip_used:
         deal = get_last_closed_trade()
@@ -217,44 +248,43 @@ while True:
                         FlipSignal(), tp_level
                     )
 
-                    if not flip_plan.valid:
-                        flip_used = True
-                        continue
-
-                    flip_rr = abs(tp_level - flip_plan.entry_price) / abs(
-                        flip_plan.entry_price - flip_plan.stop_loss
-                    )
-
-                    if flip_rr >= 5:
-                        lot = risk_manager.calculate_lot_size(
-                            flip_plan.entry_price,
-                            flip_plan.stop_loss
+                    if flip_plan.valid:
+                        flip_rr = abs(tp_level - flip_plan.entry_price) / abs(
+                            flip_plan.entry_price - flip_plan.stop_loss
                         )
 
-                        executor.place_limit(
-                            direction=flip_plan.direction,
-                            lot=lot,
-                            entry=flip_plan.entry_price,
-                            sl=flip_plan.stop_loss,
-                            tp=tp_level,
-                        )
+                        if flip_rr >= 5:
+                            lot = risk_manager.calculate_lot_size(
+                                flip_plan.entry_price,
+                                flip_plan.stop_loss,
+                            )
 
-                        log_flip(
-                            SYMBOL,
-                            flip_plan.direction,
-                            flip_plan.entry_price,
-                            flip_plan.stop_loss,
-                            tp_level,
-                            flip_rr,
-                        )
+                            executor.place_limit(
+                                direction=flip_plan.direction,
+                                lot=lot,
+                                entry=flip_plan.entry_price,
+                                sl=flip_plan.stop_loss,
+                                tp=tp_level,
+                            )
+
+                            log_flip(
+                                SYMBOL,
+                                flip_plan.direction,
+                                flip_plan.entry_price,
+                                flip_plan.stop_loss,
+                                tp_level,
+                                flip_rr,
+                            )
 
                     flip_used = True
 
     # =============================
-    # RESET
+    # EVENT RESET (ONLY HERE)
     # =============================
     if detector and detector.completed:
+        active_event = False
         detector = None
+
         trade_taken = False
         flip_used = False
         last_primary_ticket = None
