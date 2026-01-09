@@ -1,75 +1,106 @@
 # core/double_break_detector.py
 
+import pandas as pd
 from core.structure import is_swing_high, is_swing_low
 
 
 class DoubleBreakDetector:
-    def __init__(self, level, direction):
-        """
-        direction: 'SELL' (PDH logic) or 'BUY' (PDL logic)
-        level: PDH or PDL
-        """
-        self.level = level
-        self.direction = direction
+    """
+    Detects TWO STRUCTURAL breaks after a liquidity sweep.
 
-        self.swings = []   # swing highs or lows
-        self.breaks = []
+    BUY:
+        - break & close above TWO confirmed swing highs
+
+    SELL:
+        - break & close below TWO confirmed swing lows
+    """
+
+    def __init__(self, liquidity_level: float, direction: str, max_candles: int = 25):
+        self.liquidity_level = liquidity_level
+        self.direction = direction  # "BUY" or "SELL"
+        self.max_candles = max_candles
+
+        self.breaks: list[float] = []
         self.completed = False
 
-    # -----------------------------------------
-    def update(self, df, i):
+        self._candles_seen = 0
+        self._last_swing = None
+
+    # --------------------------------------------------
+    def update(self, df: pd.DataFrame, i: int):
+        """
+        Returns entry index ONLY on second valid structural break.
+        Otherwise returns None.
+        """
+
+        if self.completed:
+            return None
+
+        self._candles_seen += 1
+
         # -------------------------------
-        # 1. Detect swings
+        # EXPIRY
         # -------------------------------
+        if self._candles_seen > self.max_candles:
+            self.completed = True
+            return None
+
+        if i < 2:
+            return None
+
+        prev = df.iloc[i - 1]
+        curr = df.iloc[i]
+
+        # ===============================
+        # SELL → break swing LOWS
+        # ===============================
         if self.direction == "SELL":
-            if is_swing_high(df, i - 1):
-                self.swings.append(df.iloc[i - 1]["high"])
-        else:
             if is_swing_low(df, i - 1):
-                self.swings.append(df.iloc[i - 1]["low"])
+                self._last_swing = prev["low"]
 
-        if len(self.swings) > 5:
-            self.swings.pop(0)
+            if self._last_swing is None:
+                return None
+
+            # BREAK ONLY IF CLOSE BELOW SWING
+            if curr["close"] < self._last_swing:
+                self._register_break(self._last_swing)
+                self._last_swing = None  # force new swing
+
+        # ===============================
+        # BUY → break swing HIGHS
+        # ===============================
+        else:
+            if is_swing_high(df, i - 1):
+                self._last_swing = prev["high"]
+
+            if self._last_swing is None:
+                return None
+
+            # BREAK ONLY IF CLOSE ABOVE SWING
+            if curr["close"] > self._last_swing:
+                self._register_break(self._last_swing)
+                self._last_swing = None  # force new swing
 
         # -------------------------------
-        # 2. Detect breaks
-        # -------------------------------
-        if self.swings:
-            last = self.swings[-1]
-
-            if (
-                self.direction == "SELL" and
-                df.iloc[i]["close"] > last
-            ):
-                self._add_break(last)
-
-            if (
-                self.direction == "BUY" and
-                df.iloc[i]["close"] < last
-            ):
-                self._add_break(last)
-
-        # -------------------------------
-        # 3. Completion
+        # ENTRY TRIGGER
         # -------------------------------
         if len(self.breaks) == 2:
-            if self.direction == "SELL":
-                level = min(self.breaks)
-                if df.iloc[i]["close"] < level:
-                    self.completed = True
-                    return i + 1
-
-            else:
-                level = max(self.breaks)
-                if df.iloc[i]["close"] > level:
-                    self.completed = True
-                    return i + 1
+            self.completed = True
+            return i
 
         return None
 
-    # -----------------------------------------
-    def _add_break(self, level):
-        if not self.breaks or self.breaks[-1] != level:
-            self.breaks.append(level)
-            if len(self.breaks) > 2:
-                self.breaks.pop(0)
+    # --------------------------------------------------
+    def _register_break(self, swing_level: float):
+        """
+        Registers ONLY swing levels — not raw price ticks.
+        """
+        if not self.breaks:
+            self.breaks.append(float(swing_level))
+            return
+
+        if self.direction == "SELL" and swing_level < self.breaks[-1]:
+            self.breaks.append(float(swing_level))
+
+        elif self.direction == "BUY" and swing_level > self.breaks[-1]:
+            self.breaks.append(float(swing_level))

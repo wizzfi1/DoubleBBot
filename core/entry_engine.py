@@ -1,11 +1,7 @@
 # core/entry_engine.py
 
-import MetaTrader5 as mt5
-import pandas as pd
 from dataclasses import dataclass
-from typing import Optional
-
-from config.settings import SYMBOL, LTF, MIN_RR
+import pandas as pd
 
 
 @dataclass
@@ -15,73 +11,74 @@ class TradePlan:
     stop_loss: float
     rr: float
     valid: bool
-    reason: str
+    reason: str = ""
 
 
 class EntryEngine:
     def __init__(self, symbol: str):
         self.symbol = symbol
+        self.df: pd.DataFrame | None = None
 
-    # ---------------------------------------------
-    def fetch_m5(self, bars=50):
-        rates = mt5.copy_rates_from_pos(
-            self.symbol,
-            LTF,
-            0,
-            bars
-        )
-        df = pd.DataFrame(rates)
-        return df
-
-    # ---------------------------------------------
-    def find_last_opposite_candle(self, df, direction: str):
-        """
-        SELL → last bullish candle
-        BUY  → last bearish candle
-        """
-        for i in reversed(range(len(df) - 1)):
-            candle = df.iloc[i]
-            if direction == "SELL" and candle["close"] > candle["open"]:
-                return candle
-            if direction == "BUY" and candle["close"] < candle["open"]:
-                return candle
-        return None
-
-    # ---------------------------------------------
-    def calculate_rr(self, entry, sl, tp):
-        risk = abs(entry - sl)
-        reward = abs(tp - entry)
-        if risk == 0:
-            return 0
-        return reward / risk
-
-    # ---------------------------------------------
-    def build_trade_plan(self, signal, tp_level: float) -> TradePlan:
-        df = self.fetch_m5()
-
-        candle = self.find_last_opposite_candle(df, signal.direction)
-        if candle is None:
+    # -------------------------------------------------
+    def build_trade_plan(self, signal, tp: float) -> TradePlan:
+        if self.df is None or len(self.df) < 3:
             return TradePlan(
                 signal.direction, 0, 0, 0, False,
+                "Not enough candles"
+            )
+
+        direction = signal.direction
+        df = self.df.reset_index(drop=True)
+
+        # --------------------------------------------
+        # FIND OPPOSITE CANDLE (PULLBACK)
+        # --------------------------------------------
+        pullback_index = None
+
+        if direction == "BUY":
+            # bearish candle = close < open
+            for i in range(len(df) - 2, -1, -1):
+                if df.loc[i, "close"] < df.loc[i, "open"]:
+                    pullback_index = i
+                    break
+
+        else:  # SELL
+            # bullish candle = close > open
+            for i in range(len(df) - 2, -1, -1):
+                if df.loc[i, "close"] > df.loc[i, "open"]:
+                    pullback_index = i
+                    break
+
+        if pullback_index is None:
+            return TradePlan(
+                direction, 0, 0, 0, False,
                 "No opposite candle found"
             )
 
-        entry = candle["open"]
+        # --------------------------------------------
+        # ENTRY & STOP LOGIC
+        # --------------------------------------------
+        last = df.iloc[-1]
 
-        if signal.direction == "SELL":
-            sl = candle["high"]
+        if direction == "BUY":
+            entry = last["high"]
+            sl = df.loc[pullback_index, "low"]
         else:
-            sl = candle["low"]
+            entry = last["low"]
+            sl = df.loc[pullback_index, "high"]
 
-        rr = self.calculate_rr(entry, sl, tp_level)
-
-        if rr < MIN_RR:
+        if entry == sl:
             return TradePlan(
-                signal.direction, entry, sl, rr, False,
-                f"RR too low ({rr:.2f})"
+                direction, 0, 0, 0, False,
+                "Invalid price levels"
             )
 
+        rr = abs(tp - entry) / abs(entry - sl)
+
         return TradePlan(
-            signal.direction, entry, sl, rr, True,
-            "Valid trade plan"
+            direction=direction,
+            entry_price=entry,
+            stop_loss=sl,
+            rr=rr,
+            valid=True,
         )

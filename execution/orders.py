@@ -1,11 +1,9 @@
 # execution/orders.py
-from core.event_logger import log_sl, log_flip
-from config.settings import PRIMARY_MAGIC, FLIP_MAGIC, SLIPPAGE, MAX_OPEN_TRADES
-
 
 import MetaTrader5 as mt5
 from typing import Optional
 
+from config.settings import PRIMARY_MAGIC, FLIP_MAGIC, SLIPPAGE, MAX_OPEN_TRADES
 
 
 class OrderExecutor:
@@ -24,7 +22,8 @@ class OrderExecutor:
         lot: float,
         entry: float,
         sl: float,
-        tp: float
+        tp: float,
+        is_flip: bool = False,
     ) -> Optional[int]:
 
         if self._has_open_trade():
@@ -37,6 +36,8 @@ class OrderExecutor:
             else mt5.ORDER_TYPE_BUY_LIMIT
         )
 
+        magic = FLIP_MAGIC if is_flip else PRIMARY_MAGIC
+
         request = {
             "action": mt5.TRADE_ACTION_PENDING,
             "symbol": self.symbol,
@@ -46,7 +47,7 @@ class OrderExecutor:
             "sl": sl,
             "tp": tp,
             "deviation": SLIPPAGE,
-            "magic": MAGIC_NUMBER,
+            "magic": magic,
             "comment": "DoubleB Bot",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_RETURN,
@@ -62,5 +63,5 @@ class OrderExecutor:
             print(f"❌ Order failed: {result.retcode}")
             return None
 
-        print(f"✅ LIMIT ORDER PLACED | Ticket: {result.order}")
+        print(f"✅ LIMIT ORDER ACCEPTED | Ticket: {result.order}")
         return result.order

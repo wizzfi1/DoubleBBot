@@ -1,86 +1,68 @@
-# core/event_logger.py
-
 from datetime import datetime, timezone
 from core.notifier import send
 
 
-# =========================
-# TIME UTILITY
-# =========================
 def timestamp():
     return datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
 
-# =========================
-# LIQUIDITY EVENTS
-# =========================
-def log_pdh_taken(symbol, price):
+def log_levels(symbol, pdh, pdl):
     send(
-        f"📌 *{symbol} — PDH TAKEN*\n"
-        f"Price swept PDH at {price}\n"
+        f"📏 *{symbol} — DAILY LEVELS*\n"
+        f"PDH: `{pdh:.5f}`\n"
+        f"PDL: `{pdl:.5f}`\n"
+        f"{timestamp()}"
+    )
+
+
+def log_pdh_taken(symbol, price, pdh):
+    send(
+        f"🚨 *{symbol} — PDH SWEPT*\n"
+        f"High: `{price:.5f}`\n"
+        f"PDH: `{pdh:.5f}`\n"
         f"Waiting for M5 structure…\n"
         f"{timestamp()}"
     )
 
 
-def log_pdl_taken(symbol, price):
+def log_pdl_taken(symbol, price, pdl):
     send(
-        f"📌 *{symbol} — PDL TAKEN*\n"
-        f"Price swept PDL at {price}\n"
+        f"🚨 *{symbol} — PDL SWEPT*\n"
+        f"Low: `{price:.5f}`\n"
+        f"PDL: `{pdl:.5f}`\n"
         f"Waiting for M5 structure…\n"
         f"{timestamp()}"
     )
 
 
-# =========================
-# STRUCTURE
-# =========================
 def log_double_break(symbol, direction, breaks):
     send(
         f"🧱 *{symbol} — DOUBLE BREAK CONFIRMED*\n"
         f"Direction: {direction}\n"
-        f"Break count: {breaks}\n"
+        f"Breaks: {breaks}\n"
         f"{timestamp()}"
     )
 
 
-# =========================
-# ENTRY
-# =========================
 def log_entry(symbol, direction, entry, sl, tp, rr):
     send(
-        f"🎯 *{symbol} — ENTRY PLACED*\n"
+        f"🎯 *{symbol} — ENTRY CONFIRMED*\n"
         f"Direction: {direction}\n"
-        f"Entry: {entry}\n"
-        f"SL: {sl}\n"
-        f"TP: {tp}\n"
-        f"RR: {rr:.2f}R\n"
+        f"Entry: `{entry:.5f}`\n"
+        f"SL: `{sl:.5f}`\n"
+        f"TP: `{tp:.5f}`\n"
+        f"RR: `{rr:.2f}R`\n"
         f"{timestamp()}"
     )
 
 
-# =========================
-# STOP LOSS
-# =========================
-def log_sl(symbol, direction, price):
-    send(
-        f"🛑 *{symbol} — STOP LOSS HIT*\n"
-        f"Direction: {direction}\n"
-        f"Exit price: {price}\n"
-        f"{timestamp()}"
-    )
-
-
-# =========================
-# FLIP
-# =========================
 def log_flip(symbol, direction, entry, sl, tp, rr):
     send(
-        f"🔁 *{symbol} — FLIP TRADE PLACED*\n"
+        f"🔁 *{symbol} — FLIP CONFIRMED*\n"
         f"Direction: {direction}\n"
-        f"Entry: {entry}\n"
-        f"SL: {sl}\n"
-        f"TP: {tp}\n"
-        f"RR: {rr:.2f}R\n"
+        f"Entry: `{entry:.5f}`\n"
+        f"SL: `{sl:.5f}`\n"
+        f"TP: `{tp:.5f}`\n"
+        f"RR: `{rr:.2f}R`\n"
         f"{timestamp()}"
     )
