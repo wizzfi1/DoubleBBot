@@ -51,6 +51,22 @@ class DoubleBreakDetector:
         prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
+
+        # ===============================
+        # STRUCTURE INVALIDATION
+        # ===============================
+        if self.direction == "BUY":
+            # Any lower low invalidates bullish structure
+            if curr["low"] < prev["low"] and self._last_swing is not None:
+                self.breaks.clear()
+                self._last_swing = None
+
+        elif self.direction == "SELL":
+            # Any higher high invalidates bearish structure
+            if curr["high"] > prev["high"] and self._last_swing is not None:
+                self.breaks.clear()
+                self._last_swing = None
+
         # ===============================
         # SELL → break swing LOWS
         # ===============================
